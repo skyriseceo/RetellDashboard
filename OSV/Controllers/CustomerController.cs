@@ -1,4 +1,4 @@
-﻿using Data.Access.DTOs;
+using Data.Access.DTOs;
 using Data.Business.Customer;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
@@ -229,7 +229,7 @@ namespace OSV.Controllers
                     return Ok(result);
                 }
 
-                return BadRequest(new ApiResponse(false, "Failed to process file.", result.ErrorMessages));
+                return BadRequest(new ApiResponse(false, $"Failed to process file. {string.Join(", ", result.ErrorMessages)}", result.ErrorMessages));
             }
             catch (Exception ex)
             {
