@@ -1,43 +1,44 @@
-# STAGE 1: Build Frontend Assets (Node.js/Tailwind)
+# Stage 0: Frontend (Node) - build CSS
 FROM node:20 AS frontend-build
 WORKDIR /app
-COPY OSV/package.json .
-COPY OSV/package-lock.json .
-RUN npm install
-COPY OSV/tailwind.config.js .
-COPY OSV/postcss.config.js .
+# copy package files from the OSV web project
+COPY OSV/package.json OSV/package-lock.json ./
+RUN npm ci --silent
+COPY OSV/tailwind.config.js OSV/postcss.config.js ./ 
 COPY OSV/wwwroot/css/input.css ./wwwroot/css/input.css
-RUN npm run css:build # This runs the script from your package.json
+WORKDIR /app
+RUN npm run css:build
 
-# STAGE 2: Build Backend (.NET SDK)
+# Stage 1: Build .NET apps
 FROM mcr.microsoft.com/dotnet/sdk:8.0 AS build
 WORKDIR /src
 
-# Copy all .csproj files and restore (efficient layer caching)
-COPY OSV/OSV.csproj OSV/
-COPY Data.Business/Data.Business.csproj Data.Business/
-COPY Data.Access/Data.Access.csproj Data.Access/
+# Copy solution and project files for layer-cached restore
+COPY *.sln ./
+COPY Data.Access/*.csproj ./Data.Access/
+COPY Data.Business/*.csproj ./Data.Business/
+COPY OSV/*.csproj ./OSV/
 
-# Restore dependencies for the main project
-RUN dotnet restore "OSV/OSV.csproj"
+# restore
+RUN dotnet restore
 
-# Copy all source code
+# copy everything
 COPY . .
 
-# Copy the built CSS from the frontend stage
-COPY --from=frontend-build /app/wwwroot/css/site.css ./OSV/wwwroot/css/site.css
-
-# Build the main project
-WORKDIR "/src/OSV"
+# build main project (adjust project name if different)
+WORKDIR /src/OSV
 RUN dotnet build "OSV.csproj" -c Release -o /app/build
 
-# STAGE 3: Publish
+# publish
 FROM build AS publish
+WORKDIR /src/OSV
 RUN dotnet publish "OSV.csproj" -c Release -o /app/publish /p:UseAppHost=false
 
-# STAGE 4: Final Production Image (ASP.NET Runtime)
+# Stage final: runtime
 FROM mcr.microsoft.com/dotnet/aspnet:8.0 AS final
 WORKDIR /app
+ENV ASPNETCORE_URLS=http://+:8080
 EXPOSE 8080
 COPY --from=publish /app/publish .
+# If frontend assets were generated into OSV/wwwroot, they are included in publish step.
 ENTRYPOINT ["dotnet", "OSV.dll"]
