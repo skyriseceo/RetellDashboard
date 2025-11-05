@@ -1,11 +1,11 @@
-﻿using Data.Access.Booking;
+using Data.Access.Booking;
 using Data.Access.Customer;
 using Data.Access.DTOs;
 using Data.Business.Service.Hubs;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.AspNetCore.SignalR;
-
+using OSV.Attributes; // (تأكد من إضافة الـ using للفلتر الخاص بك)
 
 namespace OSV.Controllers
 {
@@ -22,7 +22,7 @@ namespace OSV.Controllers
         public CalComWebhookController(
             IBookingRepository bookingRepository,
             ICustomerRepository customerRepository,
-            IHubContext<HubNotification ,IHubs> hubContext,
+            IHubContext<HubNotification, IHubs> hubContext,
             IConfiguration configuration,
             ILogger<CalComWebhookController> logger)
         {
@@ -33,29 +33,17 @@ namespace OSV.Controllers
             _logger = logger;
         }
 
-        /// <summary>
-        /// يستقبل Webhooks من Cal.com
-        /// الرابط: /api/v1/webhooks/calcom?secret=YOUR_SECRET
-        /// </summary>
+
         [HttpPost("calcom")]
-        [AllowAnonymous] // (يجب أن يكون متاحًا لـ Cal.com)
+        [AllowAnonymous]
+        [TypeFilter(typeof(CalComSignatureAuthFilter))] 
         public async Task<IActionResult> HandleCalComWebhook(
-           [FromBody] CalComWebhookPayload payload,
-           [FromQuery] string secret)
+            [FromBody] CalComWebhookPayload payload)
         {
             const string logPrefix = "CalComWebhook:";
 
-            // 1. التحقق من الـ Secret
-            var expectedSecret = _configuration["CalCom:WebhookSecret"];
-            if (string.IsNullOrEmpty(expectedSecret) || secret != expectedSecret)
-            {
-                _logger.LogWarning("{Prefix} Unauthorized webhook attempt. Invalid secret.", logPrefix);
-                return Unauthorized();
-            }
-
             _logger.LogInformation("{Prefix} Received webhook event: {Event}", logPrefix, payload.TriggerEvent);
 
-            // 2. توزيع الأحداث
             try
             {
                 switch (payload.TriggerEvent)
@@ -71,7 +59,7 @@ namespace OSV.Controllers
 
                     default:
                         _logger.LogInformation("{Prefix} Ignoring unhandled event: {Event}.", logPrefix, payload.TriggerEvent);
-                        return Ok(); // نرجع OK حتى لو لم نعالجه
+                        return Ok(); 
                 }
             }
             catch (Exception ex)
@@ -80,6 +68,7 @@ namespace OSV.Controllers
                 return StatusCode(500, new { Message = "Internal server error while processing webhook." });
             }
         }
+
 
         private async Task<IActionResult> HandleBookingCreated(WebhookPayloadData bookingData)
         {
@@ -98,9 +87,9 @@ namespace OSV.Controllers
             {
                 ProspectName = attendee.Name,
                 ProspectEmail = attendee.Email,
-                ProspectPhone = null,
+                ProspectPhone = null, // (كما هو متوقع، لا يوجد رقم هاتف)
                 AppointmentTime = bookingData.StartTime,
-                Status = (enBookingStatus)(int)localStatus,
+                Status = localStatus,
                 AgentId = "Cal.com",
                 CallId = bookingData.Uid
             };
@@ -123,9 +112,7 @@ namespace OSV.Controllers
                     await _hubContext.Clients.All.ReceiveBookingUpdate(booking, "Confirmed");
                     await _hubContext.Clients.All.ReceiveCustomerUpdate(customer);
                 }
-             
             }
-            
 
             _logger.LogInformation("{Prefix} Successfully processed booking. New local Booking ID: {Id}", logPrefix, newBookingId);
             return Ok(new { BookingId = newBookingId });
@@ -140,7 +127,7 @@ namespace OSV.Controllers
 
             var success = await _bookingRepository.UpdateBookingStatusByCallIdAsync(
                 bookingData.Uid,
-                enBookingStatus.Cancelled, 
+                enBookingStatus.Cancelled,
                 default
             );
 
@@ -150,17 +137,20 @@ namespace OSV.Controllers
                 return NotFound(new { Message = "Booking not found." });
             }
 
-            // 2. إرسال إشعار للـ Hubs
             var booking = await _bookingRepository.GetBookingByCallIdAsync(bookingData.Uid);
-            var customer = await _customerRepository.GetCustomerByIdAsync(booking.CustomerId.Value,default);
+            if (booking == null || booking.CustomerId == null)
+            {
+                _logger.LogError("{Prefix} Booking or CustomerId not found after cancel for CallId {CallId}.", logPrefix, bookingData.Uid);
+                return NotFound(new { Message = "Booking data inconsistent after cancel." });
+            }
+
+            var customer = await _customerRepository.GetCustomerByIdAsync(booking.CustomerId.Value, default);
 
             // 3. (هام) تحديث حالة العميل رجوعًا إلى "Contacted"
-            // (نفترض أن الحالة القديمة كانت 'Booked')
             bool statusUpdated = await _customerRepository.UpdateCustomerStatusAsync(customer.Id, enStatus.Contacted, enStatus.Booked, default);
             if (!statusUpdated)
             {
                 _logger.LogWarning("{Prefix} Failed to update customer status from Booked to Contacted for CustomerId {Id}.", logPrefix, customer.Id);
-                // (لا نوقف العملية، نرسل التحديثات على أي حال)
             }
 
             var updatedCustomer = await _customerRepository.GetCustomerByIdAsync(booking.CustomerId.Value);
@@ -175,13 +165,11 @@ namespace OSV.Controllers
 
         /// <summary>
         /// يعالج إعادة جدولة الموعد.
-        /// (يفترض أن الدالة في SQL تعيد الحالة إلى "Confirmed")
         /// </summary>
         private async Task<IActionResult> HandleBookingRescheduled(WebhookPayloadData bookingData)
         {
             const string logPrefix = "CalComWebhook:Rescheduled:";
 
-            // 1. تحديث الموعد (الدالة في SQL ستضبط الحالة إلى 1)
             var success = await _bookingRepository.RescheduleBookingByCallIdAsync(
                 bookingData.Uid,
                 bookingData.StartTime, // (الموعد الجديد)
@@ -194,12 +182,10 @@ namespace OSV.Controllers
                 return NotFound(new { Message = "Booking not found." });
             }
 
-            // 2. إرسال إشعار للـ Hubs
-            // (لا نحتاج لتحديث حالة العميل لأنه ما زال "Booked")
             var booking = await _bookingRepository.GetBookingByCallIdAsync(bookingData.Uid);
 
             if (booking != null)
-            await _hubContext.Clients.All.ReceiveBookingUpdate(booking, "Confirmed");
+                await _hubContext.Clients.All.ReceiveBookingUpdate(booking, "Confirmed");
 
             _logger.LogInformation("{Prefix} Successfully rescheduled booking for CallId {CallId} to {NewTime}.", logPrefix, bookingData.Uid, bookingData.StartTime);
             return Ok(new { Message = "Booking rescheduled successfully." });
