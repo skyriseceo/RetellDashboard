@@ -1,4 +1,4 @@
-﻿using Data.Access.DTOs;
+using Data.Access.DTOs;
 using Data.Business.Data;
 using Microsoft.AspNetCore.Http;
 
@@ -16,7 +16,7 @@ namespace Data.Business.Customer
         Task<IEnumerable<CustomerDTO>> GetCustomersByStatusAsync(enStatus status, CancellationToken cancellationToken = default);
         Task<CustomerStatisticsDTO?> GetCustomerStatisticsAsync(CancellationToken cancellationToken = default);
         Task<bool> StartCallAsync(long customerId, CancellationToken cancellationToken = default);
-        Task<bool> HandleWebhookCallbackAsync(Requests.RetellWebhookPayload payload, CancellationToken cancellationToken = default);
+        Task<bool> HandleWebhookCallbackAsync(Requests.RetellWebhookEnvelope envelope,CancellationToken cancellationToken = default);
         Task<bool> SendEmailToCustomerAsync(long customerId, string subject, string body, CancellationToken cancellationToken = default);
         Task<bool> UpdateAndBroadcastStatus(CustomerDTO customer, enStatus newStatus, enStatus oldStatus, CancellationToken cancellationToken);
         Task<ImportResultDTO> ImportCustomersAsync(IFormFile file, CancellationToken cancellationToken = default);
