@@ -1,9 +1,4 @@
-﻿<!DOCTYPE html>
-<!--
-  [MODIFIED]
-  - نستخدم دالة `layout()` من Alpine.js لإدارة الحالة
-  - إضافة `scroll-smooth` لتجربة تمرير أفضل
--->
+<!DOCTYPE html>
 <html lang="en" x-data="layout()" class="scroll-smooth">
 <head>
     <meta charset="utf-8" />
@@ -11,39 +6,28 @@
     <meta name="viewport" content="width=device-width, initial-scale=1, shrink-to-fit=no" />
     <title>@ViewData["Title"] - OSV</title>
 
-    <!-- Font Awesome -->
     <link href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.2/css/all.min.css" rel="stylesheet" type="text/css">
 
-    <!-- Tailwind CSS -->
     <link rel="stylesheet" href="~/css/site.css" asp-append-version="true" />
 
-    <!-- [NEW] Google Font (Readex Pro) -->
     <link rel="preconnect" href="https://fonts.googleapis.com">
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
     <link href="https://fonts.googleapis.com/css2?family=Readex+Pro:wght@300;400;500;600;700&display=swap" rel="stylesheet">
 
-    <!-- [NEW] Apply Custom Font -->
     <style>
         body {
             font-family: 'Readex Pro', sans-serif;
         }
     </style>
 
-    <!-- Alpine.js (يجب أن يكون في Head ليتمكن x-data من العمل) -->
     <script src="https://cdnjs.cloudflare.com/ajax/libs/alpinejs/3.13.3/cdn.min.js" defer></script>
 </head>
 
 <body class="bg-gray-100">
 
-    <!--
-      [MODIFIED]
-      - تم تحويله إلى <aside>
-      - هذا الكود سيجعل القائمة تنزلق من اليسار
-    -->
     <aside :class="sidebarOpen ? 'translate-x-0' : '-translate-x-full'"
            class="sidebar fixed top-0 left-0 z-50 h-screen w-64 bg-gradient-to-b from-indigo-600 to-indigo-800 text-white transition-transform duration-300 shadow-xl">
 
-        <!-- Logo -->
         <div class="flex items-center justify-between px-6 py-6 border-b border-white/10">
             <div class="flex items-center gap-3">
                 <div class="w-10 h-10 bg-white/20 rounded-lg flex items-center justify-center">
@@ -52,50 +36,42 @@
                 <span class="text-xl font-bold">OSV Dashboard</span>
             </div>
 
-            <!-- [MODIFIED] زر إغلاق (X) ظاهر دائماً -->
-            <button @@click="sidebarOpen = false" class="text-white/70 hover:text-white">
+            <button x-on:click="sidebarOpen = false" class="text-white/70 hover:text-white">
                 <i class="fas fa-times text-xl"></i>
             </button>
         </div>
 
-        <!-- Navigation -->
         <nav class="px-3 py-4 space-y-1">
 
-            <a asp-controller="Home" asp-action="Index"
+            <a href="@Url.Action("Index", "Home")"
                class="sidebar-link @(ViewContext.RouteData.Values["controller"]?.ToString() == "Home" ? "active" : "")"
-               @@click="sidebarOpen = false">
+               x-on:click="sidebarOpen = false">
                 <i class="fas fa-home w-5"></i>
                 <span>Dashboard</span>
             </a>
 
-            <a asp-controller="Bookings" asp-action="Index"
+            <a href="@Url.Action("Index", "Bookings")"
                class="sidebar-link @(ViewContext.RouteData.Values["controller"]?.ToString() == "Bookings" ? "active" : "")"
-               @@click="sidebarOpen = false">
+               x-on:click="sidebarOpen = false">
                 <i class="fas fa-calendar-check w-5"></i>
                 <span>Bookings</span>
             </a>
 
-            <!--
-              [REMOVED]
-              - تم حذف لينك "Customers" بناءً على طلبك
-            -->
-
-            <a asp-controller="UserManagement" asp-action="Index"
+            <a href="@Url.Action("Index", "UserManagement")"
                class="sidebar-link @(ViewContext.RouteData.Values["controller"]?.ToString() == "UserManagement" ? "active" : "")"
-               @@click="sidebarOpen = false">
+               x-on:click="sidebarOpen = false">
                 <i class="fas fa-users-cog w-5"></i>
                 <span>Users</span>
             </a>
 
-            <a asp-controller="Settings" asp-action="Index"
+            <a href="@Url.Action("Index", "Settings")"
                class="sidebar-link @(ViewContext.RouteData.Values["controller"]?.ToString() == "Settings" ? "active" : "")"
-               @@click="sidebarOpen = false">
+               x-on:click="sidebarOpen = false">
                 <i class="fas fa-cog w-5"></i>
                 <span>Settings</span>
             </a>
         </nav>
 
-        <!-- User Info -->
         <div class="absolute bottom-0 left-0 right-0 p-4 border-t border-white/10">
             <div class="flex items-center gap-3 px-3 py-2 bg-white/10 rounded-lg">
                 <div class="w-10 h-10 bg-white/20 rounded-full flex items-center justify-center">
@@ -109,25 +85,15 @@
         </div>
     </aside>
 
-    <!-- Main Content -->
-    <!--
-      [MODIFIED]
-      - الهامش (ml-64) يطبق الآن على كل الشاشات عند الفتح (تم حذف lg:)
-      - هذا هو الكود الذي ينفذ "الدفع" (Push)
-    -->
     <div :class="sidebarOpen ? 'ml-64' : 'ml-0'" class="transition-all duration-300">
 
         <header class="sticky top-0 z-40 bg-white shadow-sm">
             <div class="flex items-center justify-between px-6 py-4">
-                <button @@click="sidebarOpen = !sidebarOpen" class="text-gray-600 hover:text-gray-900">
+                <button x-on:click="sidebarOpen = !sidebarOpen" class="text-gray-600 hover:text-gray-900">
                     <i class="fas fa-bars text-xl"></i>
                 </button>
 
                 <div class="flex items-center gap-4">
-                    <!--
-                      [MODIFIED]
-                      - تم تعديل كلاسات الزر ليصبح "أجمل" واحترافي
-                    -->
                     <form asp-area="Identity" asp-page="/Account/Logout" asp-route-returnUrl="@Url.Action("Index", "Home", new { area = "" })" method="post">
                         <button type="submit"
                                 class="flex items-center gap-2 px-4 py-2 font-medium text-red-600 bg-red-50 border border-red-200 rounded-lg transition-all duration-200 hover:bg-red-100 hover:border-red-300 hover:shadow-sm">
@@ -144,14 +110,8 @@
         </main>
     </div>
 
-    <!--
-      [MODIFIED]
-      - هذا هو المكان الموحد لكل الإشعارات (Toast)
-      - [هام] احذف دالة showToast من ملف Customers.cshtml (لو لسه موجودة)
-    -->
     <div id="toastContainer" class="fixed bottom-4 right-4 z-50 space-y-2 w-full max-w-xs sm:max-w-sm"></div>
 
-    <!-- Scroll to Top Button -->
     <button id="scrollToTopBtn"
             x-data="{ show: false }"
             x-show="show"
@@ -161,26 +121,24 @@
             x-transition:leave="transition-opacity duration-300"
             x-transition:leave-start="opacity-100"
             x-transition:leave-end="opacity-0"
-            @@scroll.window="show = (window.pageYOffset > 300)"
-            @@click="window.scrollTo({ top: 0, behavior: 'smooth' })"
+            x-on:scroll.window="show = (window.pageYOffset > 300)"
+            x-on:click="window.scrollTo({ top: 0, behavior: 'smooth' })"
             class="fixed bottom-8 right-8 z-50 w-12 h-12 bg-indigo-600 text-white rounded-full shadow-lg hover:bg-indigo-700 transition-all">
         <i class="fas fa-arrow-up"></i>
     </button>
 
-    <!-- Scripts -->
     <script src="https://cdnjs.cloudflare.com/ajax/libs/microsoft-signalr/8.0.0/signalr.min.js"></script>
 
     <script>
-        // [NEW] دالة Alpine.js الرئيسية لإدارة حالة الواجهة
+        // دالة Alpine.js الرئيسية لإدارة حالة الواجهة
         function layout() {
             return {
                 // القيمة الافتراضية: مفتوح على الديسكتوب (>= 1024px)، مغلق على الموبايل
-                // أو استخدم القيمة المحفوظة في localStorage
                 sidebarOpen: localStorage.getItem('sidebarOpen')
-                             ? localStorage.getItem('sidebarOpen') === 'true'
-                             : window.innerWidth >= 1024,
+                                     ? localStorage.getItem('sidebarOpen') === 'true'
+                                     : window.innerWidth >= 1024,
 
-                // مراقبة أي تغيير على `sidebarOpen` وحفظه في localStorage
+                // مراقبة أي تغيير على sidebarOpen وحفظه في localStorage
                 init() {
                     this.$watch('sidebarOpen', val => {
                         localStorage.setItem('sidebarOpen', val);
@@ -189,7 +147,7 @@
             };
         }
 
-        // [MODIFIED] دالة إظهار الإشعارات (Toast) الموحدة
+        // دالة إظهار الإشعارات (Toast)
         function showToast(message, type = 'info') {
             const container = document.getElementById('toastContainer');
             if (!container) return;
@@ -213,7 +171,6 @@
             const icon = icons[type] || icons['info'];
             const color = colors[type] || colors['info'];
 
-            // [NEW] استخدمنا الخط الجديد هنا
             toast.className = `toast ${color} flex items-center gap-3 px-4 py-3 rounded-lg shadow-lg text-white transform translate-x-full transition-all duration-300 ease-in-out border-l-4`;
             toast.style.fontFamily = "'Readex Pro', sans-serif";
             toast.innerHTML = `
