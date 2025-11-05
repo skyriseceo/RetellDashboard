@@ -1,4 +1,4 @@
-﻿using Data.Access.Customer;
+using Data.Access.Customer;
 using Data.Access.DTOs;
 using Data.Business.Booking;
 using Data.Business.Data;
@@ -211,7 +211,6 @@ namespace Data.Business.Customer
                     await UpdateAndBroadcastStatus(customer, enStatus.Failed, customer.Status, cancellationToken);
                     return false;
                 }
-                await UpdateAndBroadcastStatus(customer, enStatus.Contacted, customer.Status, cancellationToken);
                 _logger.LogInformation("{Prefix} Retell API call (v2/calls) initiated successfully for {Phone} (Customer ID {Id})", logPrefix, customer.PhoneNumber, customerId);
                 return true;
             }
@@ -223,27 +222,40 @@ namespace Data.Business.Customer
             }
         }
 
-        public async Task<bool> HandleWebhookCallbackAsync(Requests.RetellWebhookPayload payload, CancellationToken cancellationToken = default)
+        public async Task<bool> HandleWebhookCallbackAsync(Requests.RetellWebhookEnvelope envelope,CancellationToken cancellationToken = default)
         {
             const string logPrefix = "Service: HandleWebhookCallback:";
+            if (envelope.Event != "call_analyzed")
+            {
+                _logger.LogInformation(
+                    "{Prefix} Ignoring event '{Event}' for CallID {CallId}. Only processing 'call_analyzed'.",
+                    logPrefix, envelope.Event, envelope.Call?.CallId ?? "N/A");
+                return true;
+            }
+            if (envelope.Call == null || envelope.Call.Analysis == null || envelope.Call.Metadata == null)
+            {
+                _logger.LogWarning(
+                    "{Prefix} Received 'call_analyzed' event but payload (Call, Analysis, or Metadata) is missing. CallID: {CallId}",
+                    logPrefix, envelope.Call?.CallId ?? "N/A");
+                return false;
+            }
+
+            var payload = envelope.Call;
 
             long customerId = payload.Metadata.OurCustomerId;
             string retellCallId = payload.CallId;
-
-
             bool isSuccessful = payload.Analysis.CallSuccessful;
             string disconnectReason = payload.DisconnectionReason?.ToLowerInvariant() ?? string.Empty;
             string rootCallStatus = payload.CallStatus?.ToLowerInvariant() ?? string.Empty;
-            // --- (نهاية التصحيح) ---
 
             _logger.LogInformation(
-                "{Prefix} Handling webhook for Customer ID {Id} (CallID: {CallId}). Successful: {Success}, Reason: {Reason}, Status: {Status}",
+                "{Prefix} Handling 'call_analyzed' webhook for Customer ID {Id} (CallID: {CallId}). Successful: {Success}, Reason: {Reason}, Status: {Status}",
                 logPrefix, customerId, retellCallId, isSuccessful, disconnectReason, rootCallStatus);
 
-            // (نتجاهل أي Webhook لا يتعلق بانتهاء المكالمة)
             if (rootCallStatus != "completed")
             {
-                _logger.LogInformation("{Prefix} Ignoring non-completed event ({Status}) for CallID {CallId}", logPrefix, rootCallStatus, retellCallId);
+                _logger.LogWarning("{Prefix} Received 'call_analyzed' but status is '{Status}' (expected 'completed'). Ignoring...",
+                    logPrefix, rootCallStatus, retellCallId);
                 return true; 
             }
 
@@ -258,29 +270,29 @@ namespace Data.Business.Customer
                 }
 
                 enStatus newStatus;
+
                 if (isSuccessful)
                 {
-
                     if (customer.Status == enStatus.Booked)
                     {
-                        newStatus = enStatus.Booked; // (لا تغيرها، الحجز تم بالفعل)
-                        _logger.LogInformation("{Prefix} Call successful. Customer {Id} is already 'Booked'. No status change.", logPrefix, customerId);
+                        newStatus = enStatus.Booked; 
+                        _logger.LogInformation("{Prefix} Call successful. Customer {Id} is already 'Booked'. No status change.",
+                            logPrefix, customerId);
                     }
                     else
                     {
-                        newStatus = enStatus.Contacted; // (اتكلم بس محجزش)
-                        _logger.LogInformation("{Prefix} Call successful. Customer {Id} status set to 'Contacted'.", logPrefix, customerId);
+                        newStatus = enStatus.Contacted; 
+                        _logger.LogInformation("{Prefix} Call successful. Customer {Id} status set to 'Contacted'.",
+                            logPrefix, customerId);
                     }
                 }
-                // (السيناريو 2: المكالمة فشلت)
                 else
                 {
-                    // (تحليل سبب الفشل)
                     switch (disconnectReason)
                     {
                         case "user_hangup":
-                        case "agent_hangup": // (لو الـ Agent هو اللي قفل)
-                            newStatus = enStatus.Contacted; // (اعتبره Contacted طالما اتكلموا)
+                        case "agent_hangup":
+                            newStatus = enStatus.Contacted;
                             break;
 
                         case "call_failed":
@@ -289,35 +301,36 @@ namespace Data.Business.Customer
                             break;
 
                         case "user_not_answered":
-                        case "no_answer": // (احتياطي)
+                        case "no_answer":
                             newStatus = enStatus.NoAnswer;
                             break;
 
                         case "user_busy":
-                            newStatus = enStatus.NoAnswer; // (يعتبر NoAnswer)
+                            newStatus = enStatus.NoAnswer;
                             break;
 
                         default:
                             newStatus = enStatus.Failed;
-                            _logger.LogWarning("{Prefix} Unhandled disconnect reason '{Reason}'. Defaulting to Failed for Customer {Id}.", logPrefix, disconnectReason, customerId);
+                            _logger.LogWarning("{Prefix} Unhandled disconnect reason '{Reason}'. Defaulting to Failed for Customer {Id}.",
+                                logPrefix, disconnectReason, customerId);
                             break;
                     }
                 }
-                // --- (نهاية التصحيح) ---
 
-
-                // (باقي الكود بتاعك سليم 100% لتحديث الداتابيز والـ SignalR)
                 if (customer.Status == newStatus)
                 {
-                    _logger.LogWarning("{Prefix} Status is already {Status} for customer {Id}.", logPrefix, newStatus, customer.Id);
+                    _logger.LogWarning("{Prefix} Status is already {Status} for customer {Id}.",
+                        logPrefix, newStatus, customer.Id);
                     return true;
                 }
 
-                bool updateSuccess = await _customerRepository.UpdateCustomerStatusAsync(customer.Id, newStatus, customer.Status, cancellationToken);
+                bool updateSuccess = await _customerRepository.UpdateCustomerStatusAsync(
+                    customer.Id, newStatus, customer.Status, cancellationToken);
 
                 if (updateSuccess)
                 {
-                    _logger.LogInformation("{Prefix} Status updated to {Status}. Broadcasting update for customer {Id}.", logPrefix, newStatus, customer.Id);
+                    _logger.LogInformation("{Prefix} Status updated to {Status}. Broadcasting update for customer {Id}.",
+                        logPrefix, newStatus, customer.Id);
                     customer.Status = newStatus;
                     await _hubContext.Clients.All.ReceiveCustomerUpdate(customer);
                 }
@@ -336,6 +349,7 @@ namespace Data.Business.Customer
                 return false;
             }
         }
+
 
         public async Task<CustomerDTO?> GetCustomerByIdAsync(long customerId, CancellationToken cancellationToken = default)
         {
@@ -391,6 +405,9 @@ namespace Data.Business.Customer
             var result = new ImportResultDTO();
             var customersToInsert = new List<CustomerImportDTO>();
 
+            // <--- (الخطوة 1: إضافة HashSet لتتبع الأرقام داخل الملف)
+            var phoneNumbersInFile = new HashSet<string>();
+
             try
             {
                 using var stream = file.OpenReadStream();
@@ -418,7 +435,7 @@ namespace Data.Business.Customer
                 // --- 1. البحث عن العواميد بمرونة ---
                 int nameColIdx = FindColumnIndex(dataTable.Columns, "name", "full name", "customer name");
                 int phoneColIdx = FindColumnIndex(dataTable.Columns, "phone", "phone number", "phonenumber");
-                int emailColIdx = FindColumnIndex(dataTable.Columns, "email", "email address"); // اختياري
+                int emailColIdx = FindColumnIndex(dataTable.Columns, "email", "email address", "e-mail");
 
                 if (nameColIdx == -1 || phoneColIdx == -1)
                 {
@@ -427,8 +444,7 @@ namespace Data.Business.Customer
                     return result;
                 }
 
-                // --- 2. تجميع البيانات والـ Validation لكل صف ---
-                int rowNumber = 2; // نبدأ من 2 لأن أول صف هو Header
+                int rowNumber = 2;
                 foreach (DataRow row in dataTable.Rows)
                 {
                     try
@@ -442,6 +458,16 @@ namespace Data.Business.Customer
                             result.ErrorMessages.Add($"Row {rowNumber}: 'Name' and 'Phone' are required. Skipping this row.");
                             continue;
                         }
+
+                        // <--- (الخطوة 2: التحقق من التكرار داخل الملف)
+                        // phoneNumbersInFile.Add(phone) هترجع false لو الرقم موجود قبل كدة
+                        if (!phoneNumbersInFile.Add(phone))
+                        {
+                            _logger.LogWarning("{Prefix} Skipping Row {RowNumber}: Phone number '{Phone}' is duplicated within the file.", logPrefix, rowNumber, phone);
+                            result.ErrorMessages.Add($"Row {rowNumber}: Phone number '{phone}' is duplicated in the file. Skipping this row.");
+                            continue; // تجاهل الصف ده وكمل
+                        }
+                        // <--- (نهاية التعديل)
 
                         customersToInsert.Add(new CustomerImportDTO
                         {
@@ -471,21 +497,25 @@ namespace Data.Business.Customer
                     return result;
                 }
 
+                // (الكود ده زي ما هو، هيبعت بس القائمة المنقحة بدون تكرار)
                 var affectedRows = await _customerRepository.AddCustomersBulkAsync(customersToInsert, cancellationToken);
 
                 if (affectedRows.HasValue)
                 {
                     result.SuccessfullyImported = affectedRows.Value;
-                    result.FailedOrDuplicates = result.TotalRows - result.SuccessfullyImported;
+                    // نحسب الفشل بناءً على عدد الصفوف اللي حاولت تدخل الداتابيز
+                    result.FailedOrDuplicates = customersToInsert.Count - result.SuccessfullyImported;
+
+                   
+                     result.FailedOrDuplicates = result.TotalRows - result.SuccessfullyImported;
                 }
                 else
                 {
                     _logger.LogError("{Prefix} Bulk import failed. Repository returned null.", logPrefix);
                     result.ErrorMessages.Add("Database operation failed during bulk insert.");
-                    result.FailedOrDuplicates = result.TotalRows;
+                    result.FailedOrDuplicates = customersToInsert.Count; // <--- تعديل: الفشل هنا خاص بالصفوف اللي اتبعتت
                 }
 
-                // --- 4. إرسال SignalR (تحديث عام) ---
                 if (result.SuccessfullyImported > 0)
                 {
                     _logger.LogInformation("{Prefix} Import complete. Broadcasting a generic 'ReceiveCustomerUpdate' message.", logPrefix);
@@ -498,11 +528,43 @@ namespace Data.Business.Customer
                 result.ErrorMessages.Add($"An unexpected error occurred: {ex.Message}");
             }
 
-            _logger.LogInformation("{Prefix} Bulk import finished. Total: {Total}, Success: {Success}, Failed: {Failed}",
-                logPrefix, result.TotalRows, result.SuccessfullyImported, result.FailedOrDuplicates);
+            // <--- (تعديل بسيط في اللوج عشان يبقى أوضح)
+            _logger.LogInformation("{Prefix} Bulk import finished. Total Rows in file: {Total}, Rows sent to DB: {Sent}, Success: {Success}, Failed/DB Duplicates: {Failed}",
+                logPrefix, result.TotalRows, customersToInsert.Count, result.SuccessfullyImported, result.FailedOrDuplicates);
 
             return result;
         }
+
+        private int FindColumnIndex(DataColumnCollection columns, params string[] possibleNames)
+        {
+            foreach (DataColumn column in columns)
+            {
+                var normalizedColumnName = Normalize(column.ColumnName);
+
+                foreach (var name in possibleNames)
+                {
+                    var normalizedTarget = Normalize(name);
+
+                    if (string.Equals(normalizedColumnName, normalizedTarget, StringComparison.OrdinalIgnoreCase))
+                        return column.Ordinal;
+                }
+            }
+            return -1;
+        }
+
+        private string Normalize(string input)
+        {
+            if (string.IsNullOrWhiteSpace(input))
+                return string.Empty;
+
+            // نخلي فقط الحروف والأرقام، ونحولها لحروف صغيرة
+            return new string(input
+                .Trim()
+                .ToLowerInvariant()
+                .Where(c => char.IsLetterOrDigit(c))
+                .ToArray());
+        }
+
 
 
         public async Task<bool> SendEmailToCustomerAsync(long customerId, string subject, string body, CancellationToken cancellationToken = default)
@@ -537,19 +599,6 @@ namespace Data.Business.Customer
             }
         }
 
-        private int FindColumnIndex(DataColumnCollection columns, params string[] possibleNames)
-        {
-            var normalizedPossibleNames = possibleNames.Select(name => name.ToLowerInvariant().Replace(" ", "")).ToHashSet();
-
-            foreach (System.Data.DataColumn col in columns)
-            {
-                var normalizedColName = col.ColumnName.Trim().ToLowerInvariant().Replace(" ", "");
-                if (normalizedPossibleNames.Contains(normalizedColName))
-                {
-                    return col.Ordinal; // بنرجع الـ Index
-                }
-            }
-            return -1; // مش موجود
-        }
+ 
     }
 }
