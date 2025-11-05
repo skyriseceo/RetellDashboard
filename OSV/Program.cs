@@ -130,6 +130,8 @@ try
     // Repositories (Dapper)
     builder.Services.AddScoped<ICustomerRepository, CustomerRepository>();
     builder.Services.AddScoped<IBookingRepository, BookingRepository>();
+
+    builder.Services.AddScoped<OSV.Attributes.CalComSignatureAuthFilter>();
     // Services
     builder.Services.AddScoped<ICustomerService, CustomerService>();
     builder.Services.AddScoped<IBookingService, BookingService>();
