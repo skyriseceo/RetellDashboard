@@ -1,4 +1,3 @@
-﻿
 using System.Text.Json.Serialization;
 
 namespace Data.Business.Data
@@ -27,9 +26,14 @@ namespace Data.Business.Data
         // (2) الـ DTOs الخاصة بالـ Webhook (ملخص نهاية المكالمة)
         // -------------------------------------------------------------------
 
-        /// <summary>
-                /// (الظرف الكامل) - ده الـ Object الرئيسي اللي بنستقبله في (retell-updates)
-                /// </summary>
+        public class RetellWebhookEnvelope
+        {
+            [JsonPropertyName("event")]
+            public string Event { get; set; } = string.Empty;
+
+            [JsonPropertyName("call")]
+            public RetellWebhookPayload Call { get; set; } = new RetellWebhookPayload();
+        }
         public class RetellWebhookPayload
         {
             // (الـ JSON الذي أرسلته هو "Call Object" كامل، وهذا هو الـ DTO الصحيح له)
